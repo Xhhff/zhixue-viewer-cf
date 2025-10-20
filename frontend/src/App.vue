@@ -1,11 +1,12 @@
+<!-- 正确的内容 -->
 <template>
-  <el-container style="height: 100vh;">
-    <el-main>
-      <router-view />
-    </el-main>
-  </el-container>
+  <router-view />
 </template>
 
 <style>
-body { margin: 0; }
+/* 你可以保留或添加一些全局样式，确保 body 没有多余的 margin */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
 </style>
