@@ -19,38 +19,61 @@ let zhixueToken: string | null = null;
 const getPinnedClasses = (c: any): string[] => (c.env.PINNED_CLASSES || '').split(',').filter(Boolean);
 
 // --- 智学网 API 封装 (这部分代码保持不变) ---
+
 const zhixueLogin = async (c: any): Promise<boolean> => {
     const { ZHIXUE_TGT, ZHIXUE_DEVICE_ID } = c.env;
     if (!ZHIXUE_TGT || !ZHIXUE_DEVICE_ID) {
-        console.error("TGT or Device ID not configured in Cloudflare secrets.");
+        console.error("Secrets not found: TGT or Device ID is missing in Cloudflare environment variables.");
         return false;
     }
+    
     try {
+        console.log("Attempting to extend TGT...");
         const extendRes = await fetch("https://open.changyan.com/sso/v1/api", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-            tgt: ZHIXUE_TGT, method: 'sso.extend.tgt', ncetAppId: 'E3KzZvjVkC8kQXWBlR5521GztpApNn99',
-            appId: 'zhixue_teacher', deviceId: ZHIXUE_DEVICE_ID,
-        }),
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new    URLSearchParams({
+                tgt: ZHIXUE_TGT, method: 'sso.extend.tgt', ncetAppId: 'E3KzZvjVkC8kQXWBlR5521GztpApNn99',
+                appId: 'zhixue_teacher', deviceId: ZHIXUE_DEVICE_ID,
+            }),
         });
-        const extendData = await extendRes.json() as any;
+
+        const extendDataText = await extendRes.text(); // 先获取文本，防止json解析失败
+        console.log("Response from TGT extend:", extendDataText); // **关键日志**
+        const extendData = JSON.parse(extendDataText) as any;
+
+        if (!extendData.data || !extendData.data.at) {
+            console.error("Failed to get 'at' from TGT extend response. Response data:", extendData);
+            return false;
+        }
+
         const at = extendData.data.at;
         const userId = extendData.data.userId;
-
+        
+        console.log("Attempting uniteLogin with 'at' token...");
         const uniteRes = await fetch("https://app.zhixue.com/appteacher/home/uniteLogin?", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-            appId: "zhixue_teacher", at, autologin: 'true', ncetAppId: 'E3KzZvjVkC8kQXWBlR5521GztpApNn99', userId,
-        }),
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                appId: "zhixue_teacher", at, autologin: 'true', ncetAppId: 'E3KzZvjVkC8kQXWBlR5521GztpApNn99', userId,
+            }),
         });
-        const uniteData = await uniteRes.json() as any;
+
+        const uniteDataText = await uniteRes.text();
+        console.log("Response from uniteLogin:", uniteDataText); // **关键日志**
+        const uniteData = JSON.parse(uniteDataText) as any;
+
+        if (!uniteData.result || !uniteData.result.user || !uniteData.result.user.token) {
+            console.error("Failed to get final token from uniteLogin response. Response data:", uniteData);
+            return false;
+        }
+
         zhixueToken = uniteData.result.user.token;
-        console.log("Successfully logged into Zhixue and got token.");
+        console.log("Successfully logged into Zhixue and got final token.");
         return true;
+
     } catch (error) {
-        console.error("Zhixue login failed:", error);
+        console.error("An exception occurred during Zhixue login process:", error);
         zhixueToken = null;
         return false;
     }
