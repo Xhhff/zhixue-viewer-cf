@@ -1,6 +1,6 @@
 // functions/api/[[path]].ts
 
-import { Hono } from 'hono';
+import { jwt } from 'hono/jwt';
 // 更改1: 移除 bearerAuth, 我们将自己创建中间件
 import { sign, verify } from 'hono/jwt';
 import { MiddlewareHandler } from 'hono';
@@ -79,18 +79,12 @@ const makeZhixueRequest = async (c: any, url: string, options: RequestInit = {})
 // --- 应用认证中间件 ---
 
 // 更改2: 创建我们自己的、更明确的认证中间件
-const authMiddleware: MiddlewareHandler<{ Bindings: Bindings }> = async (c, next) => {
-    const authHeader = c.req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return c.json({ error: 'Unauthorized', message: 'Token is missing or malformed' }, 401);
-    }
-    const token = authHeader.substring(7); // "Bearer ".length is 7
-    try {
-        await verify(token, c.env.SECRET_KEY);
-        await next();
-    } catch (e) {
-        return c.json({ error: 'Unauthorized', message: 'Token is invalid' }, 401);
-    }
+const authMiddleware = (c: any, next: any) => {
+  // 我们需要一个包装函数，因为 c.env.SECRET_KEY 只有在请求上下文中才可用
+  const jwtMiddleware = jwt({
+    secret: c.env.SECRET_KEY,
+  });
+  return jwtMiddleware(c, next);
 };
 
 // --- API 路由 ---
