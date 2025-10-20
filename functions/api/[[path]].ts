@@ -2,7 +2,8 @@
 
 import { Hono } from 'hono';
 import { bearerAuth } from 'hono/bearer-auth';
-import jwt from '@tsndr/cloudflare-worker-jwt';
+// 更改1: 引入 hono 内置的 jwt 工具
+import { sign, verify } from 'hono/jwt';
 
 // 定义 Cloudflare 绑定的环境变量和 Secrets
 type Bindings = {
@@ -16,17 +17,12 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>();
 
 // --- 状态与工具函数 ---
-
-// 在 Worker 的实例生命周期内缓存智学 Token
 let zhixueToken: string | null = null;
-
-// 从逗号分隔的字符串中解析置顶班级列表
 const getPinnedClasses = (c: any): string[] => {
   return (c.env.PINNED_CLASSES || '').split(',').filter(Boolean);
 };
 
-// --- 智学网 API 封装 ---
-
+// --- 智学网 API 封装 (这部分代码保持不变) ---
 const zhixueLogin = async (c: any): Promise<boolean> => {
   const { ZHIXUE_TGT, ZHIXUE_DEVICE_ID } = c.env;
   if (!ZHIXUE_TGT || !ZHIXUE_DEVICE_ID) {
@@ -81,7 +77,6 @@ const makeZhixueRequest = async (c: any, url: string, options: RequestInit = {})
 
   let response = await fetch(url, options);
 
-  // 如果遇到401/403，可能是token过期，尝试重登录并重试一次
   if (response.status === 401 || response.status === 403) {
     console.log("Token might be expired, re-logging in...");
     if (await zhixueLogin(c)) {
@@ -94,9 +89,15 @@ const makeZhixueRequest = async (c: any, url: string, options: RequestInit = {})
 
 // --- 应用认证中间件 ---
 
+// 更改2: 使用 hono/jwt 的 verify 方法来创建中间件
 const authMiddleware = bearerAuth({
   verify: async (token, c) => {
-    return await jwt.verify(token, c.env.SECRET_KEY);
+    try {
+      await verify(token, c.env.SECRET_KEY);
+      return true; // 验证成功
+    } catch (e) {
+      return false; // 验证失败
+    }
   },
 });
 
@@ -105,11 +106,18 @@ const authMiddleware = bearerAuth({
 // 1. 登录
 app.post('/api/login', async (c) => {
   if (await zhixueLogin(c)) {
-    const appToken = await jwt.sign({ user: 'admin', exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) }, c.env.SECRET_KEY);
+    // 更改3: 使用 hono/jwt 的 sign 方法来创建 token
+    const payload = { 
+        user: 'admin', 
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 days expiration
+    };
+    const appToken = await sign(payload, c.env.SECRET_KEY);
     return c.json({ token: appToken, role: 'superadmin' });
   }
   return c.json({ message: '智学网登录失败' }, 401);
 });
+
+// --- 所有其他 API 路由保持不变 ---
 
 // 2. 考试列表
 app.get('/api/exams', authMiddleware, async (c) => {
@@ -201,3 +209,4 @@ app.get('/api/students/detail', authMiddleware, async (c) => {
 export const onRequest: PagesFunction<Bindings> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
+
